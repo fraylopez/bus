@@ -1,7 +1,6 @@
 type Uuid = string
 
 export interface MessageAttributeMap {
-  redeliveryCount: number;
   [key: string]: string | number | undefined
 }
 
@@ -48,17 +47,13 @@ export class MessageAttributes<
     stickyAttributes?: StickyAttributeType
   }) {
     this.attributes = {} as AttributeType
-    this.stickyAttributes = { redeliveryCount: 0 } as StickyAttributeType
+    this.stickyAttributes = { redeliveryCount: 0 } as any
 
     if (!!properties) {
       const { correlationId, attributes, stickyAttributes } = properties
       this.correlationId = correlationId
       this.attributes = attributes || {} as AttributeType
-      this.stickyAttributes = stickyAttributes || { redeliveryCount: 0 } as StickyAttributeType
+      this.stickyAttributes = stickyAttributes || { redeliveryCount: 0 } as any
     }
-  }
-
-  incrementRedelivery() {
-    this.stickyAttributes.redeliveryCount = this.stickyAttributes.redeliveryCount + 1;
   }
 }

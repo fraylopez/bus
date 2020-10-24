@@ -21,7 +21,7 @@ export class ServiceBus implements Bus {
   private internalState: BusState = BusState.Stopped
   private runningWorkerCount = 0
 
-  constructor (
+  constructor(
     @inject(BUS_SYMBOLS.Transport) private readonly transport: Transport<{}>,
     @inject(LOGGER_SYMBOLS.Logger) private readonly logger: Logger,
     @inject(BUS_SYMBOLS.HandlerRegistry) private readonly handlerRegistry: HandlerRegistry,
@@ -32,7 +32,7 @@ export class ServiceBus implements Bus {
   ) {
   }
 
-  async publish<TEvent extends Event> (
+  async publish<TEvent extends Event>(
     event: TEvent,
     messageOptions: MessageAttributes = new MessageAttributes()
   ): Promise<void> {
@@ -43,7 +43,7 @@ export class ServiceBus implements Bus {
     return this.transport.publish(event, transportOptions)
   }
 
-  async fail (): Promise<void> {
+  async fail(): Promise<void> {
     if (!this.rawMessage) {
       throw new FailMessageOutsideHandlingContext(this.rawMessage)
 
@@ -52,7 +52,7 @@ export class ServiceBus implements Bus {
     return this.transport.fail(this.rawMessage)
   }
 
-  async send<TCommand extends Command> (
+  async send<TCommand extends Command>(
     command: TCommand,
     messageOptions: MessageAttributes = new MessageAttributes()
   ): Promise<void> {
@@ -63,7 +63,7 @@ export class ServiceBus implements Bus {
     return this.transport.send(command, transportOptions)
   }
 
-  async start (): Promise<void> {
+  async start(): Promise<void> {
     if (this.internalState !== BusState.Stopped) {
       throw new Error('ServiceBus must be stopped before it can be started')
     }
@@ -75,7 +75,7 @@ export class ServiceBus implements Bus {
     this.internalState = BusState.Started
   }
 
-  async stop (): Promise<void> {
+  async stop(): Promise<void> {
     this.internalState = BusState.Stopping
     this.logger.info('ServiceBus stopping...')
 
@@ -87,22 +87,22 @@ export class ServiceBus implements Bus {
     this.logger.info('ServiceBus stopped')
   }
 
-  get state (): BusState {
+  get state(): BusState {
     return this.internalState
   }
 
-  get runningParallelWorkerCount (): number {
+  get runningParallelWorkerCount(): number {
     return this.runningWorkerCount
   }
 
   // tslint:disable-next-line:member-ordering
   on = this.busHooks.on.bind(this.busHooks)
 
-  off (action: HookAction, callback: HookCallback): void {
+  off(action: HookAction, callback: HookCallback): void {
     this.busHooks.off(action, callback)
   }
 
-  private async applicationLoop (): Promise<void> {
+  private async applicationLoop(): Promise<void> {
     this.runningWorkerCount++
     this.logger.debug('Worker started', { runningParallelWorkerCount: this.runningParallelWorkerCount })
     while (this.internalState === BusState.Started) {
@@ -112,7 +112,7 @@ export class ServiceBus implements Bus {
     this.logger.debug('Worker stopped', { runningParallelWorkerCount: this.runningParallelWorkerCount })
   }
 
-  private async handleNextMessage (): Promise<boolean> {
+  private async handleNextMessage(): Promise<boolean> {
     try {
       const message = await this.transport.readNextMessage()
 
@@ -144,7 +144,7 @@ export class ServiceBus implements Bus {
     return false
   }
 
-  private async dispatchMessageToHandlers (
+  private async dispatchMessageToHandlers(
     rawMessage: TransportMessage<MessageType>
   ): Promise<void> {
     const handlers = this.handlerRegistry.get(rawMessage.domainMessage)
@@ -164,21 +164,19 @@ export class ServiceBus implements Bus {
     await Promise.all(handlersToInvoke)
   }
 
-  private prepareTransportOptions (clientOptions: MessageAttributes): MessageAttributes {
-    const result: MessageAttributes = {
+  private prepareTransportOptions(clientOptions: MessageAttributes): MessageAttributes {
+    return new MessageAttributes({
       correlationId: clientOptions.correlationId || this.messageHandlingContext.correlationId,
       attributes: clientOptions.attributes,
       stickyAttributes: {
         ...clientOptions.stickyAttributes,
         ...this.messageHandlingContext.stickyAttributes
       }
-    }
-
-    return result
+    })
   }
 }
 
-async function dispatchMessageToHandler (
+async function dispatchMessageToHandler(
   rawMessage: TransportMessage<MessageType>,
   handlerRegistration: HandlerRegistration<MessageType>
 ): Promise<void> {

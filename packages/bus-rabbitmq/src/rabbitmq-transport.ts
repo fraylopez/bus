@@ -76,15 +76,15 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
     const payloadStr = rabbitMessage.content.toString('utf8')
     const payload = this.messageSerializer.deserialize(payloadStr)
 
-    const attributes: MessageAttributes = {
+    const attributes: MessageAttributes = new MessageAttributes({
       correlationId: rabbitMessage.properties.correlationId as string,
       attributes: rabbitMessage.properties.headers && rabbitMessage.properties.headers.attributes
         ? JSON.parse(rabbitMessage.properties.headers.attributes as string) as MessageAttributeMap
-        : {},
+        : undefined,
       stickyAttributes: rabbitMessage.properties.headers && rabbitMessage.properties.headers.stickyAttributes
         ? JSON.parse(rabbitMessage.properties.headers.stickyAttributes as string) as MessageAttributeMap
-        : {}
-    }
+        : undefined
+    })
 
     return {
       id: undefined,
@@ -108,7 +108,8 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
   }
 
   async returnMessage(message: TransportMessage<RabbitMqMessage>): Promise<void> {
-    message.attributes.incrementRedelivery();
+    const redeliveryCount: number | undefined = Number(message.attributes.stickyAttributes.redeliveryCount);
+    message.attributes.stickyAttributes.redeliveryCount = redeliveryCount ? redeliveryCount + 1 : 0;
     const msg = JSON.parse(message.raw.content.toString())
     const attempt = message.attributes.stickyAttributes.redeliveryCount;
     const meta = { attempt, message: msg, rawMessage: message.raw }
