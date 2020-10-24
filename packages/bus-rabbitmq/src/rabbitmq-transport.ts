@@ -8,8 +8,8 @@ import { RabbitMqTransportConfiguration } from './rabbitmq-transport-configurati
 import { MessageType } from '@node-ts/bus-core/dist/handler/handler'
 
 export const DEFAULT_MAX_RETRIES = 10
-const deadLetterExchange = '@node-ts/bus-rabbitmq/dead-letter-exchange'
-const deadLetterQueue = 'dead-letter'
+// const deadLetterExchange = '@node-ts/bus-rabbitmq/dead-letter-exchange'
+// const deadLetterQueue = 'dead-letter'
 
 /**
  * A RabbitMQ transport adapter for @node-ts/bus.
@@ -22,21 +22,21 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
   private assertedExchanges: { [key: string]: boolean } = {}
   private maxRetries: number
 
-  constructor (
+  constructor(
     @inject(BUS_RABBITMQ_INTERNAL_SYMBOLS.AmqpFactory)
-      private readonly connectionFactory: () => Promise<Connection>,
+    private readonly connectionFactory: () => Promise<Connection>,
     @inject(BUS_RABBITMQ_SYMBOLS.TransportConfiguration)
-      private readonly configuration: RabbitMqTransportConfiguration,
+    private readonly configuration: RabbitMqTransportConfiguration,
     @inject(LOGGER_SYMBOLS.Logger) private readonly logger: Logger,
     @inject(BUS_SYMBOLS.HandlerRegistry)
-      private readonly handlerRegistry: HandlerRegistry,
+    private readonly handlerRegistry: HandlerRegistry,
     @inject(BUS_SYMBOLS.MessageSerializer)
-      private readonly messageSerializer: MessageSerializer
+    private readonly messageSerializer: MessageSerializer
   ) {
     this.maxRetries = configuration.maxRetries || DEFAULT_MAX_RETRIES
   }
 
-  async initialize (): Promise<void> {
+  async initialize(): Promise<void> {
     this.logger.info('Initializing RabbitMQ transport')
     this.connection = await this.connectionFactory()
     this.channel = await this.connection.createChannel()
@@ -44,31 +44,31 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
     this.logger.info('RabbitMQ transport initialized')
   }
 
-  async dispose (): Promise<void> {
+  async dispose(): Promise<void> {
     await this.channel.close()
     await this.connection.close()
   }
 
-  async publish<TEvent extends Event> (event: TEvent, messageAttributes?: MessageAttributes): Promise<void> {
+  async publish<TEvent extends Event>(event: TEvent, messageAttributes?: MessageAttributes): Promise<void> {
     await this.publishMessage(event, messageAttributes)
   }
 
-  async send<TCommand extends Command> (command: TCommand, messageAttributes?: MessageAttributes): Promise<void> {
+  async send<TCommand extends Command>(command: TCommand, messageAttributes?: MessageAttributes): Promise<void> {
     await this.publishMessage(command, messageAttributes)
   }
 
-  async fail (transportMessage: TransportMessage<unknown>): Promise<void> {
+  async fail(transportMessage: TransportMessage<unknown>): Promise<void> {
     const rawMessage = transportMessage.raw as GetMessage
     const serializedPayload = this.messageSerializer.serialize(transportMessage.domainMessage as Message)
     this.channel.sendToQueue(
-      deadLetterQueue,
+      this.getDeadLetterQueueName(),
       Buffer.from(serializedPayload),
       rawMessage.properties
     )
-    this.logger.debug('Message failed immediately to dead letter queue', { rawMessage, deadLetterQueue })
+    this.logger.debug('Message failed immediately to dead letter queue', { rawMessage, deadLetterQueue: this.getDeadLetterQueueName() })
   }
 
-  async readNextMessage (): Promise<TransportMessage<RabbitMqMessage> | undefined> {
+  async readNextMessage(): Promise<TransportMessage<RabbitMqMessage> | undefined> {
     const rabbitMessage = await this.channel.get(this.configuration.queueName, { noAck: false })
     if (rabbitMessage === false) {
       return undefined
@@ -94,7 +94,7 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
     }
   }
 
-  async deleteMessage (message: TransportMessage<RabbitMqMessage>): Promise<void> {
+  async deleteMessage(message: TransportMessage<RabbitMqMessage>): Promise<void> {
     this.logger.debug(
       'Deleting message',
       {
@@ -107,9 +107,10 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
     this.channel.ack(message.raw)
   }
 
-  async returnMessage (message: TransportMessage<RabbitMqMessage>): Promise<void> {
+  async returnMessage(message: TransportMessage<RabbitMqMessage>): Promise<void> {
+    message.attributes.incrementRedelivery();
     const msg = JSON.parse(message.raw.content.toString())
-    const attempt = message.raw.fields.deliveryTag
+    const attempt = message.attributes.stickyAttributes.redeliveryCount;
     const meta = { attempt, message: msg, rawMessage: message.raw }
     if (attempt >= this.maxRetries) {
       this.logger.debug('Message retries failed, sending to dead letter queue', meta)
@@ -120,7 +121,7 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
     }
   }
 
-  private async assertExchange (messageName: string): Promise<void> {
+  private async assertExchange(messageName: string): Promise<void> {
     if (!this.assertedExchanges[messageName]) {
       this.logger.debug('Asserting exchange', { messageName })
       await this.channel.assertExchange(messageName, 'fanout', { durable: true })
@@ -128,11 +129,11 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
     }
   }
 
-  private async bindExchangesToQueue (): Promise<void> {
+  private async bindExchangesToQueue(): Promise<void> {
     await this.createDeadLetterQueue()
     await this.channel.assertQueue(
       this.configuration.queueName,
-      { durable: true, deadLetterExchange }
+      { durable: true, deadLetterExchange: this.getDeadLetterQueueName() }
     )
     const subscriptionPromises = this.handlerRegistry.messageSubscriptions
       .map(async subscription => {
@@ -159,13 +160,13 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
    * Creates a dead letter exchange + queue, binds, and returns the
    * dead letter exchange name
    */
-  private async createDeadLetterQueue (): Promise<void> {
-    await this.channel.assertExchange(deadLetterExchange, 'direct', { durable: true })
-    await this.channel.assertQueue(deadLetterQueue, { durable: true })
-    await this.channel.bindQueue(deadLetterQueue, deadLetterExchange, '')
+  private async createDeadLetterQueue(): Promise<void> {
+    await this.channel.assertExchange(this.getDeadLetterQueueName(), 'direct', { durable: true })
+    await this.channel.assertQueue(this.getDeadLetterQueueName(), { durable: true })
+    await this.channel.bindQueue(this.getDeadLetterQueueName(), this.getDeadLetterQueueName(), '')
   }
 
-  private async publishMessage (
+  private async publishMessage(
     message: Message,
     messageOptions: MessageAttributes = new MessageAttributes()
   ): Promise<void> {
@@ -178,5 +179,9 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
         stickyAttributes: messageOptions.stickyAttributes ? JSON.stringify(messageOptions.stickyAttributes) : undefined
       }
     })
+  }
+
+  private getDeadLetterQueueName(): string {
+    return `${this.configuration.queueName}_deadletter`;
   }
 }

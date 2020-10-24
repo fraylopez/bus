@@ -1,6 +1,7 @@
 type Uuid = string
 
 export interface MessageAttributeMap {
+  redeliveryCount: number;
   [key: string]: string | number | undefined
 }
 
@@ -11,7 +12,7 @@ export interface MessageAttributeMap {
 export class MessageAttributes<
   AttributeType extends MessageAttributeMap = MessageAttributeMap,
   StickyAttributeType extends MessageAttributeMap = MessageAttributeMap
-> {
+  > {
   /**
    * An identifier that can be used to relate or group messages together.
    * This value is sticky, in that any messages that are sent as a result
@@ -41,20 +42,23 @@ export class MessageAttributes<
    */
   stickyAttributes: StickyAttributeType
 
-  constructor (properties?: {
+  constructor(properties?: {
     correlationId?: Uuid,
     attributes?: AttributeType,
     stickyAttributes?: StickyAttributeType
   }) {
     this.attributes = {} as AttributeType
-    this.stickyAttributes = {} as StickyAttributeType
+    this.stickyAttributes = { redeliveryCount: 0 } as StickyAttributeType
 
     if (!!properties) {
       const { correlationId, attributes, stickyAttributes } = properties
       this.correlationId = correlationId
       this.attributes = attributes || {} as AttributeType
-      this.stickyAttributes = stickyAttributes || {} as StickyAttributeType
+      this.stickyAttributes = stickyAttributes || { redeliveryCount: 0 } as StickyAttributeType
     }
   }
 
+  incrementRedelivery() {
+    this.stickyAttributes.redeliveryCount = this.stickyAttributes.redeliveryCount + 1;
+  }
 }
